@@ -33,7 +33,7 @@ export default function ReportModal({ box, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 modal-overlay"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 modal-overlay" style={{ zIndex: 9999 }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">

@@ -5,6 +5,23 @@ import ReportModal from './ReportModal';
 export default function BoxDetails({ box, onClose, onEdit, onUpdate, onDelete }) {
   const [loading, setLoading] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showNavMenu, setShowNavMenu] = useState(false);
+
+  const hasCoords = box.latitude && box.longitude;
+
+  function buildNavUrls() {
+    const lat = parseFloat(box.latitude);
+    const lng = parseFloat(box.longitude);
+    const query = encodeURIComponent(box.address || `${lat},${lng}`);
+    return {
+      google: hasCoords
+        ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${query}`,
+      waze: hasCoords
+        ? `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`
+        : `https://waze.com/ul?q=${query}&navigate=yes`,
+    };
+  }
 
   async function handleToggleEvacuated() {
     setLoading(true);
@@ -115,6 +132,44 @@ export default function BoxDetails({ box, onClose, onEdit, onUpdate, onDelete })
             >
               🔧 דווח תקלה
             </button>
+          </div>
+
+          {/* Navigation button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowNavMenu((v) => !v)}
+              className="w-full py-2.5 px-4 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              🧭 נווט לקופה
+              <svg className={`w-4 h-4 transition-transform ${showNavMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showNavMenu && (
+              <div className="absolute bottom-full mb-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-10">
+                <a
+                  href={buildNavUrls().google}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setShowNavMenu(false)}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="" />
+                  <span className="text-sm font-medium text-gray-800">פתח בגוגל מפות</span>
+                </a>
+                <div className="border-t" />
+                <a
+                  href={buildNavUrls().waze}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setShowNavMenu(false)}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <img src="https://www.waze.com/favicon.ico" className="w-5 h-5" alt="" />
+                  <span className="text-sm font-medium text-gray-800">פתח בווייז</span>
+                </a>
+              </div>
+            )}
           </div>
 
           <button
