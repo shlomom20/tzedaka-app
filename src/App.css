@@ -1,0 +1,5 @@
+/* App-specific overrides */
+#root {
+  min-height: 100vh;
+  direction: rtl;
+}
