@@ -1,12 +1,17 @@
 import { useState } from 'react';
+import emailjs from '@emailjs/browser';
+
+const EMAILJS_PUBLIC_KEY = 'QxTmy2MS_CIb9jPha';
+const EMAILJS_SERVICE_ID = 'service_pp2glae';
+const EMAILJS_TEMPLATE_ID = 'template_jguopkf';
 
 export default function ReportModal({ box, onClose }) {
   const [reporterName, setReporterName] = useState('');
   const [reportText, setReportText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
 
-  const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || 'admin@example.com';
-
-  function handleSend() {
+  async function handleSend() {
     if (!reporterName.trim()) {
       alert('יש להזין שם מדווח');
       return;
@@ -16,19 +21,31 @@ export default function ReportModal({ box, onClose }) {
       return;
     }
 
-    const subject = encodeURIComponent(`דיווח תקלה - קופה ${box.serial_number} - ${box.name}`);
-    const body = encodeURIComponent(
-      `דיווח תקלה עבור קופה:\n` +
-        `מספר סידורי: ${box.serial_number}\n` +
-        `שם: ${box.name}\n` +
-        `כתובת: ${box.address || '—'}\n\n` +
-        `מדווח: ${reporterName}\n\n` +
-        `תיאור התקלה:\n${reportText}\n\n` +
-        `תאריך: ${new Date().toLocaleString('he-IL')}`
-    );
-
-    window.open(`mailto:${adminEmail}?subject=${subject}&body=${body}`);
-    onClose();
+    setSending(true);
+    try {
+      await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        {
+          from_name: reporterName.trim(),
+          message:
+            `דיווח תקלה עבור קופה:\n` +
+            `מספר סידורי: ${box.serial_number}\n` +
+            `שם: ${box.name}\n` +
+            `כתובת: ${box.address || '—'}\n\n` +
+            `מדווח: ${reporterName.trim()}\n\n` +
+            `תיאור התקלה:\n${reportText.trim()}\n\n` +
+            `תאריך: ${new Date().toLocaleString('he-IL')}`,
+        },
+        EMAILJS_PUBLIC_KEY
+      );
+      setSent(true);
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      alert('שגיאה בשליחת הדיווח: ' + (err?.text || err?.message || 'נסה שנית'));
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -84,24 +101,22 @@ export default function ReportModal({ box, onClose }) {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
-
-          <p className="text-xs text-gray-500">
-            הדיווח יישלח לכתובת: <span className="font-mono">{adminEmail}</span>
-          </p>
         </div>
 
         <div className="p-4 border-t flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 px-4 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+            disabled={sending}
+            className="flex-1 py-2.5 px-4 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-40"
           >
             ביטול
           </button>
           <button
             onClick={handleSend}
-            className="flex-1 py-2.5 px-4 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors"
+            disabled={sending || sent}
+            className="flex-1 py-2.5 px-4 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors disabled:opacity-60"
           >
-            📧 שלח דיווח
+            {sent ? '✅ נשלח!' : sending ? 'שולח...' : '📧 שלח דיווח'}
           </button>
         </div>
       </div>

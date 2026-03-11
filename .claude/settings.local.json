@@ -17,7 +17,9 @@
       "Bash(API_KEY=\"AIzaSyCOEezUnnyQdh1e-K9LkmrBlTvn5DGNJ4Q\" __NEW_LINE_1c3ad0d519a4171d__ curl -s \"https://maps.googleapis.com/maps/api/geocode/json?address=Tel+Aviv&key=$API_KEY&language=he\")",
       "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | tail -4)",
       "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | grep -i \"error\\\\|Error\" | head -20)",
-      "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | tail -5)"
+      "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | tail -5)",
+      "Bash(npm install:*)",
+      "Bash(git add:*)"
     ]
   }
 }

@@ -36,6 +36,8 @@ export default function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Back button closes details panel instead of navigating away
   const detailsOpenRef = useRef(false);
@@ -210,7 +212,7 @@ export default function App() {
       </header>
 
       {/* Tabs + Filter */}
-      <div className="bg-white border-b shadow-sm sticky top-0 z-40">
+      <div className="bg-white border-b shadow-sm sticky top-0 z-[1100]">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between">
             {/* Tabs */}
@@ -235,20 +237,40 @@ export default function App() {
 
             {/* Filter (only for map/list) */}
             {activeTab !== 'route' && (
-              <div className="flex items-center gap-0.5 sm:gap-1">
-                {FILTER_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setFilter(opt.value)}
-                    className={`px-1.5 py-0.5 text-[10px] sm:px-3 sm:py-1.5 sm:text-xs rounded-full font-medium transition-colors ${
-                      filter === opt.value
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="relative">
+                <button
+                  onClick={() => setFilterOpen((v) => !v)}
+                  className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-full font-medium transition-colors border ${
+                    filter !== 'all'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  🔽 סנן לפי{filter !== 'all' && `: ${FILTER_OPTIONS.find(o => o.value === filter)?.label}`}
+                </button>
+                {filterOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-[1101]"
+                      onClick={() => setFilterOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-[1102] min-w-[120px] overflow-hidden">
+                      {FILTER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => { setFilter(opt.value); setFilterOpen(false); }}
+                          className={`w-full text-right px-4 py-2 text-sm transition-colors ${
+                            filter === opt.value
+                              ? 'bg-blue-50 text-blue-700 font-medium'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -303,40 +325,52 @@ export default function App() {
                 {/* List — scrolls internally */}
                 <div className="flex-1 min-w-0 overflow-y-auto bg-white rounded-xl shadow flex flex-col">
                   {/* Toolbar */}
-                  <div className="sticky top-0 z-10 bg-white border-b px-4 py-2 flex items-center justify-between gap-2">
-                    {selectMode ? (
-                      <>
-                        <span className="text-sm text-gray-600">
-                          {selectedIds.size > 0
-                            ? `נבחרו ${selectedIds.size} קופות`
-                            : 'בחר קופות למחיקה'}
-                        </span>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handleBulkDelete}
-                            disabled={selectedIds.size === 0 || bulkDeleting}
-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-40"
-                          >
-                            {bulkDeleting ? 'מוחק...' : `🗑️ מחק (${selectedIds.size})`}
-                          </button>
+                  <div className="sticky top-0 z-10 bg-white border-b px-4 py-2 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      {selectMode ? (
+                        <>
+                          <span className="text-sm text-gray-600">
+                            {selectedIds.size > 0
+                              ? `נבחרו ${selectedIds.size} קופות`
+                              : 'בחר קופות למחיקה'}
+                          </span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleBulkDelete}
+                              disabled={selectedIds.size === 0 || bulkDeleting}
+                              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-40"
+                            >
+                              {bulkDeleting ? 'מוחק...' : `🗑️ מחק (${selectedIds.size})`}
+                            </button>
+                            <button
+                              onClick={handleToggleSelectMode}
+                              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg font-medium transition-colors"
+                            >
+                              ביטול
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-sm text-gray-500">{boxes.length} קופות</span>
                           <button
                             onClick={handleToggleSelectMode}
                             className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg font-medium transition-colors"
                           >
-                            ביטול
+                            ☑️ בחירה מרובה
                           </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-sm text-gray-500">{boxes.length} קופות</span>
-                        <button
-                          onClick={handleToggleSelectMode}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg font-medium transition-colors"
-                        >
-                          ☑️ בחירה מרובה
-                        </button>
-                      </>
+                        </>
+                      )}
+                    </div>
+                    {!selectMode && (
+                      <input
+                        type="text"
+                        placeholder="חיפוש לפי שם קופה..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        dir="rtl"
+                      />
                     )}
                   </div>
 
@@ -360,6 +394,7 @@ export default function App() {
                       selectMode={selectMode}
                       selectedIds={selectedIds}
                       onToggleSelect={handleToggleSelectId}
+                      searchQuery={searchQuery}
                     />
                   )}
                 </div>

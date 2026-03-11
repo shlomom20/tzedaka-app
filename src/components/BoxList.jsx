@@ -1,6 +1,6 @@
 export default function BoxList({
   boxes, onSelectBox, selectedBox, filter,
-  selectMode, selectedIds, onToggleSelect,
+  selectMode, selectedIds, onToggleSelect, searchQuery = '',
 }) {
   const filteredBoxes = boxes.filter((box) => {
     const hasLocation = box.latitude && box.longitude &&
@@ -9,6 +9,9 @@ export default function BoxList({
     if (filter === 'not_evacuated') return !box.is_evacuated;
     if (filter === 'no_location') return !hasLocation;
     return true;
+  }).filter((box) => {
+    if (!searchQuery.trim()) return true;
+    return box.name?.toLowerCase().includes(searchQuery.trim().toLowerCase());
   });
 
   if (filteredBoxes.length === 0) {

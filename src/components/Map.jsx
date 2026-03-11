@@ -134,9 +134,7 @@ export default function Map({ boxes, onSelectBox, selectedBox, filter, focusLoca
             key={box.id}
             position={[box._lat, box._lng]}
             icon={box.is_evacuated ? greenIcon : redIcon}
-            eventHandlers={{
-              click: () => onSelectBox(box),
-            }}
+            eventHandlers={{}}
           >
             <Popup>
               <div style={{ direction: 'rtl', textAlign: 'right', minWidth: '150px' }}>
