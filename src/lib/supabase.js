@@ -77,6 +77,11 @@ export async function deleteBox(id) {
   if (error) throw error;
 }
 
+export async function deleteBoxes(ids) {
+  const { error } = await supabase.from('boxes').delete().in('id', ids);
+  if (error) throw error;
+}
+
 export async function markEvacuated(id, isEvacuated) {
   const updates = {
     is_evacuated: isEvacuated,

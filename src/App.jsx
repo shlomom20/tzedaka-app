@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchBoxes } from './lib/supabase';
+import { fetchBoxes, deleteBoxes } from './lib/supabase';
 import Map from './components/Map';
 import BoxList from './components/BoxList';
 import BoxDetails from './components/BoxDetails';
@@ -18,6 +18,7 @@ const FILTER_OPTIONS = [
   { value: 'all', label: 'הכל' },
   { value: 'not_evacuated', label: 'לא פונו' },
   { value: 'evacuated', label: 'פונו' },
+  { value: 'no_location', label: 'ללא מיקום' },
 ];
 
 export default function App() {
@@ -31,6 +32,10 @@ export default function App() {
   const [editingBox, setEditingBox] = useState(null);
   const [navigationRoute, setNavigationRoute] = useState(null);
   const [showImport, setShowImport] = useState(false);
+  const [mapFocus, setMapFocus] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const loadBoxes = useCallback(async () => {
     setLoading(true);
@@ -54,6 +59,42 @@ export default function App() {
   }
 
   function handleCloseDetails() {
+    setSelectedBox(null);
+  }
+
+  function handleToggleSelectMode() {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+    setSelectedBox(null);
+  }
+
+  function handleToggleSelectId(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`האם למחוק ${selectedIds.size} קופות? פעולה זו אינה הפיכה.`)) return;
+    setBulkDeleting(true);
+    try {
+      await deleteBoxes([...selectedIds]);
+      setBoxes((prev) => prev.filter((b) => !selectedIds.has(b.id)));
+      setSelectedIds(new Set());
+      setSelectMode(false);
+    } catch (err) {
+      alert('שגיאה במחיקה: ' + err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  function handleShowOnMap(box) {
+    setMapFocus({ lat: parseFloat(box.latitude), lng: parseFloat(box.longitude) });
+    setActiveTab('map');
     setSelectedBox(null);
   }
 
@@ -155,7 +196,10 @@ export default function App() {
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    if (tab.id === 'map') setSelectedBox(null);
+                    setActiveTab(tab.id);
+                  }}
                   className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600'
@@ -211,26 +255,69 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex gap-4 min-h-0" style={{ height: 'calc(100vh - 160px)' }}>
-            {/* Main panel */}
-            <div
-              className={`flex-1 min-w-0 ${
-                activeTab === 'route' ? 'bg-white rounded-xl shadow overflow-hidden' : ''
-              }`}
-            >
-              {activeTab === 'map' && (
-                <div className="h-full bg-white rounded-xl shadow overflow-hidden">
-                  <Map
-                    boxes={boxes}
-                    onSelectBox={handleSelectBox}
-                    selectedBox={selectedBox}
-                    filter={filter}
-                  />
-                </div>
-              )}
+          <>
+            {/* Map tab */}
+            {activeTab === 'map' && (
+              <div
+                className="bg-white rounded-xl shadow overflow-hidden"
+                style={{ height: 'calc(100vh - 160px)' }}
+              >
+                <Map
+                  boxes={boxes}
+                  onSelectBox={handleSelectBox}
+                  selectedBox={selectedBox}
+                  filter={filter}
+                  focusLocation={mapFocus}
+                />
+              </div>
+            )}
 
-              {activeTab === 'list' && (
-                <div className="h-full bg-white rounded-xl shadow overflow-y-auto">
+            {/* List tab — scrollable list + fixed-height details panel side by side */}
+            {activeTab === 'list' && (
+              <div
+                className="flex gap-4 overflow-hidden"
+                style={{ height: 'calc(100vh - 160px)' }}
+              >
+                {/* List — scrolls internally */}
+                <div className="flex-1 min-w-0 overflow-y-auto bg-white rounded-xl shadow flex flex-col">
+                  {/* Toolbar */}
+                  <div className="sticky top-0 z-10 bg-white border-b px-4 py-2 flex items-center justify-between gap-2">
+                    {selectMode ? (
+                      <>
+                        <span className="text-sm text-gray-600">
+                          {selectedIds.size > 0
+                            ? `נבחרו ${selectedIds.size} קופות`
+                            : 'בחר קופות למחיקה'}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleBulkDelete}
+                            disabled={selectedIds.size === 0 || bulkDeleting}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-40"
+                          >
+                            {bulkDeleting ? 'מוחק...' : `🗑️ מחק (${selectedIds.size})`}
+                          </button>
+                          <button
+                            onClick={handleToggleSelectMode}
+                            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg font-medium transition-colors"
+                          >
+                            ביטול
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-sm text-gray-500">{boxes.length} קופות</span>
+                        <button
+                          onClick={handleToggleSelectMode}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg font-medium transition-colors"
+                        >
+                          ☑️ בחירה מרובה
+                        </button>
+                      </>
+                    )}
+                  </div>
+
                   {boxes.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-400">
                       <div className="text-5xl mb-4">📦</div>
@@ -248,31 +335,65 @@ export default function App() {
                       onSelectBox={handleSelectBox}
                       selectedBox={selectedBox}
                       filter={filter}
+                      selectMode={selectMode}
+                      selectedIds={selectedIds}
+                      onToggleSelect={handleToggleSelectId}
                     />
                   )}
                 </div>
-              )}
 
-              {activeTab === 'route' && (
-                <RoutePlanner boxes={boxes} onStartNavigation={handleStartNavigation} />
-              )}
-            </div>
-
-            {/* Details panel */}
-            {selectedBox && activeTab !== 'route' && (
-              <div className="w-80 flex-shrink-0 bg-white rounded-xl shadow overflow-hidden">
-                <BoxDetails
-                  box={selectedBox}
-                  onClose={handleCloseDetails}
-                  onEdit={handleEdit}
-                  onUpdate={handleUpdated}
-                  onDelete={handleDeleted}
-                />
+                {/* Details — fixed to container height, own scroll, stays while list scrolls */}
+                {selectedBox && (
+                  <div
+                    className="w-80 flex-shrink-0 bg-white rounded-xl shadow flex flex-col overflow-hidden"
+                    style={{ height: '100%' }}
+                  >
+                    <BoxDetails
+                      box={selectedBox}
+                      onClose={handleCloseDetails}
+                      onEdit={handleEdit}
+                      onUpdate={handleUpdated}
+                      onDelete={handleDeleted}
+                      onShowOnMap={handleShowOnMap}
+                    />
+                  </div>
+                )}
               </div>
             )}
-          </div>
+
+            {/* Route tab */}
+            {activeTab === 'route' && (
+              <div
+                className="bg-white rounded-xl shadow overflow-hidden"
+                style={{ height: 'calc(100vh - 160px)' }}
+              >
+                <RoutePlanner boxes={boxes} onStartNavigation={handleStartNavigation} />
+              </div>
+            )}
+          </>
         )}
       </main>
+
+      {/* Map tab details — fixed overlay (only on map tab) */}
+      {selectedBox && activeTab === 'map' && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/30"
+            style={{ zIndex: 1100 }}
+            onClick={handleCloseDetails}
+          />
+          <div className="fixed top-0 right-0 h-full w-96 shadow-2xl" style={{ zIndex: 1101 }}>
+            <BoxDetails
+              box={selectedBox}
+              onClose={handleCloseDetails}
+              onEdit={handleEdit}
+              onUpdate={handleUpdated}
+              onDelete={handleDeleted}
+              onShowOnMap={handleShowOnMap}
+            />
+          </div>
+        </>
+      )}
 
       {/* Add/Edit Modal */}
       {showAddEdit && (

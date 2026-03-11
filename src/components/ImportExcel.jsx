@@ -2,6 +2,61 @@ import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { createBox } from '../lib/supabase';
 
+// Returns true if the geocoding result's locality matches the expected city.
+// Handles common variations like "תל אביב" vs "תל אביב-יפו".
+function resultMatchesCity(result, expectedCity) {
+  const expected = expectedCity.trim();
+  const locality = result.address_components?.find((c) => c.types.includes('locality'));
+  if (locality) {
+    const name = locality.long_name;
+    if (name.includes(expected) || expected.includes(name.split('-')[0])) return true;
+  }
+  return result.formatted_address?.includes(expected) ?? false;
+}
+
+async function fetchGeocode(params) {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const qs = new URLSearchParams({ key: apiKey, language: 'he', region: 'il', ...params });
+  const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${qs}`);
+  const data = await res.json();
+  return data.status === 'OK' && data.results.length > 0 ? data.results[0] : null;
+}
+
+async function geocodeAddress(address) {
+  if (!address) return null;
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const commaIdx = address.lastIndexOf(',');
+    const streetPart = commaIdx > 0 ? address.slice(0, commaIdx).trim() : address.trim();
+    const cityPart = commaIdx > 0 ? address.slice(commaIdx + 1).trim() : null;
+
+    // Strategy 1: street in address + locality in components (most accurate for ambiguous names)
+    if (cityPart) {
+      const result = await fetchGeocode({
+        address: streetPart,
+        components: `locality:${cityPart}|country:IL`,
+      });
+      if (result && resultMatchesCity(result, cityPart)) {
+        const { lat, lng } = result.geometry.location;
+        return { latitude: lat, longitude: lng };
+      }
+    }
+
+    // Strategy 2: full address + country:IL
+    const result2 = await fetchGeocode({ address, components: 'country:IL' });
+    if (result2) {
+      // Validate city if we parsed one — reject wrong-city results silently
+      if (!cityPart || resultMatchesCity(result2, cityPart)) {
+        const { lat, lng } = result2.geometry.location;
+        return { latitude: lat, longitude: lng };
+      }
+    }
+  } catch {}
+  return null;
+}
+
 // Column mapping: Hebrew header → DB field
 const COLUMN_MAP = {
   'מספר סידורי': 'serial_number',
@@ -99,7 +154,7 @@ export default function ImportExcel({ boxes = [], onClose, onImported }) {
   const [rows, setRows] = useState(null);
   const [errors, setErrors] = useState([]);
   const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState({ done: 0, total: 0, geocoding: false, geocodingName: '' });
   const [importErrors, setImportErrors] = useState([]);
   const [done, setDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -154,21 +209,40 @@ export default function ImportExcel({ boxes = [], onClose, onImported }) {
     if (!rows || rows.length === 0) return;
     setImporting(true);
     setImportErrors([]);
-    setProgress({ done: 0, total: rows.length });
+    setProgress({ done: 0, total: rows.length, geocoding: false, geocodingName: '' });
 
     const errs = [];
     let successCount = 0;
     const imported = [];
 
     for (let i = 0; i < rows.length; i++) {
+      const rowErrors = validateRow(rows[i], i, boxes, rows);
+      if (rowErrors.length > 0) {
+        setProgress({ done: i + 1, total: rows.length, geocoding: false, geocodingName: '' });
+        continue;
+      }
+
+      let rowData = { ...rows[i] };
+
+      // Geocode if address exists but no coordinates
+      if (rowData.address && (!rowData.latitude || !rowData.longitude)) {
+        setProgress({ done: i, total: rows.length, geocoding: true, geocodingName: rowData.name || rowData.address });
+        const coords = await geocodeAddress(rowData.address);
+        if (coords) {
+          rowData = { ...rowData, ...coords };
+        }
+      }
+
+      setProgress({ done: i, total: rows.length, geocoding: false, geocodingName: '' });
+
       try {
-        const saved = await createBox(rows[i]);
+        const saved = await createBox(rowData);
         imported.push(saved);
         successCount++;
       } catch (err) {
         errs.push(`שורה ${i + 2} (${rows[i].serial_number || '?'}): ${err.message}`);
       }
-      setProgress({ done: i + 1, total: rows.length });
+      setProgress({ done: i + 1, total: rows.length, geocoding: false, geocodingName: '' });
     }
 
     setImportErrors(errs);
@@ -313,7 +387,9 @@ export default function ImportExcel({ boxes = [], onClose, onImported }) {
                               <td className="px-2 py-1.5 text-gray-500 font-mono" dir="ltr">
                                 {row.latitude && row.longitude
                                   ? `${Number(row.latitude).toFixed(4)}, ${Number(row.longitude).toFixed(4)}`
-                                  : '—'}
+                                  : row.address
+                                  ? <span className="text-yellow-600 font-sans text-xs">יאותר לפי כתובת</span>
+                                  : <span className="text-red-500 font-sans text-xs">ללא מיקום</span>}
                               </td>
                               <td className="px-2 py-1.5">
                                 {isValid ? (
@@ -337,15 +413,22 @@ export default function ImportExcel({ boxes = [], onClose, onImported }) {
               {importing && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm text-gray-600">
-                    <span>מייבא...</span>
+                    <span>
+                      {progress.geocoding
+                        ? `מאתר כתובת: ${progress.geocodingName}...`
+                        : 'מייבא...'}
+                    </span>
                     <span>{progress.done} / {progress.total}</span>
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                      className={`h-full rounded-full transition-all duration-300 ${progress.geocoding ? 'bg-yellow-500' : 'bg-blue-600'}`}
                       style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
                     />
                   </div>
+                  {progress.geocoding && (
+                    <p className="text-xs text-yellow-600">מחפש קואורדינטות לפי כתובת ב-OpenStreetMap...</p>
+                  )}
                 </div>
               )}
             </>
