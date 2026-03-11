@@ -170,9 +170,9 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
         </p>
       </div>
 
-      <div className="flex-1 overflow-hidden flex flex-col lg:flex-row gap-0">
-        {/* Left panel: available boxes */}
-        <div className="lg:w-2/5 border-b lg:border-b-0 lg:border-l overflow-y-auto">
+      <div className="flex-1 overflow-hidden flex flex-col gap-0">
+        {/* Top panel: available boxes */}
+        <div className="flex-1 min-h-0 border-b overflow-y-auto">
           <div className="p-3 bg-gray-50 border-b sticky top-0 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">
               קופות זמינות ({availableBoxes.length})
@@ -223,8 +223,8 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
           </div>
         </div>
 
-        {/* Right panel: route */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Bottom panel: route */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-3 bg-gray-50 border-b sticky top-0 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">
               מסלול ({route.length} נקודות)
@@ -242,7 +242,7 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
           {route.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <div className="text-4xl mb-3">🗺️</div>
-              <p className="text-sm">הוסף קופות מהרשימה השמאלית</p>
+              <p className="text-sm">הוסף קופות מהרשימה למעלה</p>
             </div>
           ) : (
             <div className="p-2 space-y-1">

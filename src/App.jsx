@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchBoxes, deleteBoxes } from './lib/supabase';
 import Map from './components/Map';
 import BoxList from './components/BoxList';
@@ -36,6 +36,28 @@ export default function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Back button closes details panel instead of navigating away
+  const detailsOpenRef = useRef(false);
+  useEffect(() => {
+    if (selectedBox && !detailsOpenRef.current) {
+      detailsOpenRef.current = true;
+      history.pushState({ detailsOpen: true }, '');
+    } else if (!selectedBox) {
+      detailsOpenRef.current = false;
+    }
+  }, [selectedBox]);
+
+  useEffect(() => {
+    function handlePopState() {
+      if (detailsOpenRef.current) {
+        detailsOpenRef.current = false;
+        setSelectedBox(null);
+      }
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const loadBoxes = useCallback(async () => {
     setLoading(true);
@@ -200,7 +222,7 @@ export default function App() {
                     if (tab.id === 'map') setSelectedBox(null);
                     setActiveTab(tab.id);
                   }}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-2 py-2 text-xs sm:px-4 sm:py-3 sm:text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -213,12 +235,12 @@ export default function App() {
 
             {/* Filter (only for map/list) */}
             {activeTab !== 'route' && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5 sm:gap-1">
                 {FILTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     onClick={() => setFilter(opt.value)}
-                    className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
+                    className={`px-1.5 py-0.5 text-[10px] sm:px-3 sm:py-1.5 sm:text-xs rounded-full font-medium transition-colors ${
                       filter === opt.value
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
