@@ -31,6 +31,7 @@ export default function App() {
   const [showAddEdit, setShowAddEdit] = useState(false);
   const [editingBox, setEditingBox] = useState(null);
   const [navigationRoute, setNavigationRoute] = useState(null);
+  const [navigationIndex, setNavigationIndex] = useState(0);
   const [showImport, setShowImport] = useState(false);
   const [mapFocus, setMapFocus] = useState(null);
   const [selectMode, setSelectMode] = useState(false);
@@ -157,10 +158,13 @@ export default function App() {
 
   function handleStartNavigation(route) {
     setNavigationRoute(route);
+    setNavigationIndex(0);
+    setActiveTab('route');
   }
 
   function handleExitNavigation() {
     setNavigationRoute(null);
+    setNavigationIndex(0);
   }
 
   function handleNavBoxUpdated(updatedBox) {
@@ -243,6 +247,11 @@ export default function App() {
                   }`}
                 >
                   {tab.label}
+                  {tab.id === 'route' && navigationRoute && (
+                    <span className="mr-1 text-xs bg-green-500 text-white px-1 py-0.5 rounded font-normal">
+                      בניווט
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -456,7 +465,17 @@ export default function App() {
                 className="bg-white rounded-xl shadow overflow-hidden"
                 style={{ height: 'calc(100vh - 160px)' }}
               >
-                <RoutePlanner boxes={boxes} onStartNavigation={handleStartNavigation} />
+                {navigationRoute ? (
+                  <NavigationMode
+                    route={navigationRoute}
+                    initialIndex={navigationIndex}
+                    onIndexChange={setNavigationIndex}
+                    onExit={handleExitNavigation}
+                    onBoxUpdated={handleNavBoxUpdated}
+                  />
+                ) : (
+                  <RoutePlanner boxes={boxes} onStartNavigation={handleStartNavigation} />
+                )}
               </div>
             )}
           </>
@@ -509,14 +528,6 @@ export default function App() {
         />
       )}
 
-      {/* Navigation Mode */}
-      {navigationRoute && (
-        <NavigationMode
-          route={navigationRoute}
-          onExit={handleExitNavigation}
-          onBoxUpdated={handleNavBoxUpdated}
-        />
-      )}
     </div>
   );
 }

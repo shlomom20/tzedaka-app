@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -21,6 +23,13 @@ import {
   buildGoogleMapsUrl,
   openWaze,
 } from '../lib/routeUtils';
+
+const ROUTE_FILTER_OPTIONS = [
+  { value: 'all', label: 'הכל' },
+  { value: 'not_evacuated', label: 'לא פונה' },
+  { value: 'evacuated', label: 'פונה' },
+  { value: 'no_location', label: 'ללא מיקום' },
+];
 
 function SortableItem({ box, index, onRemove }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -43,6 +52,7 @@ function SortableItem({ box, index, onRemove }) {
         {...attributes}
         {...listeners}
         className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 p-1"
+        style={{ touchAction: 'none' }}
         title="גרור לסידור מחדש"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,13 +94,48 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [route, setRoute] = useState([]);
   const [routeCalculated, setRouteCalculated] = useState(false);
+  const [routeFilter, setRouteFilter] = useState('all');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterBtnRef = useRef(null);
+
+  // Auto builder state
+  const [showAutoBuilder, setShowAutoBuilder] = useState(false);
+  const [autoSelectedAreas, setAutoSelectedAreas] = useState([]);
+  const [autoTargetCount, setAutoTargetCount] = useState(10);
+  const [autoPendingConfirm, setAutoPendingConfirm] = useState(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const availableBoxes = boxes.filter(
+  const uniqueAreas = [...new Set(
+    boxes.map((b) => b.area).filter((a) => a && a.trim())
+  )].sort();
+
+  function applyRouteFilter(boxList) {
+    if (routeFilter === 'all') return boxList;
+    if (routeFilter === 'evacuated') return boxList.filter((b) => b.is_evacuated);
+    if (routeFilter === 'not_evacuated') return boxList.filter((b) => !b.is_evacuated);
+    if (routeFilter === 'no_location') return boxList.filter((b) => !b.latitude || !b.longitude);
+    if (routeFilter.startsWith('area:')) {
+      const area = routeFilter.slice(5);
+      return boxList.filter((b) => b.area === area);
+    }
+    return boxList;
+  }
+
+  function getFilterLabel() {
+    if (routeFilter.startsWith('area:')) return `אזור: ${routeFilter.slice(5)}`;
+    return ROUTE_FILTER_OPTIONS.find((o) => o.value === routeFilter)?.label ?? 'הכל';
+  }
+
+  const availableBoxes = applyRouteFilter(boxes).filter(
     (b) => b.latitude && b.longitude && !selectedIds.includes(b.id)
   );
 
@@ -120,9 +165,12 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
   }
 
   function handleSelectAll() {
-    const withCoords = boxes.filter((b) => b.latitude && b.longitude);
-    setSelectedIds(withCoords.map((b) => b.id));
-    setRoute(withCoords);
+    const toAdd = applyRouteFilter(boxes).filter(
+      (b) => b.latitude && b.longitude && !selectedIds.includes(b.id)
+    );
+    if (toAdd.length === 0) return;
+    setSelectedIds((prev) => [...prev, ...toAdd.map((b) => b.id)]);
+    setRoute((prev) => [...prev, ...toAdd]);
     setRouteCalculated(false);
   }
 
@@ -156,39 +204,203 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
     openWaze(route[0].latitude, route[0].longitude);
   }
 
+  // Auto builder logic
+  function handleBuildAutoRoute() {
+    if (autoSelectedAreas.length === 0) {
+      alert('יש לבחור לפחות אזור אחד');
+      return;
+    }
+    if (!autoTargetCount || autoTargetCount < 1) {
+      alert('יש להזין מספר קופות תקין');
+      return;
+    }
+
+    const relevantBoxes = boxes.filter(
+      (b) => b.latitude && b.longitude && autoSelectedAreas.includes(b.area)
+    );
+
+    // Group by area and sort within each area by last_evacuated_at (null first, oldest first)
+    const areaGroups = {};
+    for (const area of autoSelectedAreas) {
+      areaGroups[area] = relevantBoxes
+        .filter((b) => b.area === area)
+        .sort((a, b) => {
+          if (!a.last_evacuated_at && !b.last_evacuated_at) return 0;
+          if (!a.last_evacuated_at) return -1;
+          if (!b.last_evacuated_at) return 1;
+          return new Date(a.last_evacuated_at) - new Date(b.last_evacuated_at);
+        });
+    }
+
+    // Sort areas by count of unevacuated boxes (descending)
+    const sortedAreas = [...autoSelectedAreas].sort((a, b) => {
+      const aCount = (areaGroups[a] || []).filter((box) => !box.is_evacuated).length;
+      const bCount = (areaGroups[b] || []).filter((box) => !box.is_evacuated).length;
+      return bCount - aCount;
+    });
+
+    const collected = [];
+    for (const area of sortedAreas) {
+      const areaBoxes = areaGroups[area] || [];
+      for (let i = 0; i < areaBoxes.length; i++) {
+        collected.push(areaBoxes[i]);
+        if (collected.length === autoTargetCount) {
+          const remaining = areaBoxes.slice(i + 1);
+          if (remaining.length > 0) {
+            setAutoPendingConfirm({ collected: [...collected], remaining, areaName: area });
+            return;
+          }
+          finalizeAutoRoute(collected);
+          return;
+        }
+      }
+    }
+    finalizeAutoRoute(collected);
+  }
+
+  function handleConfirmExtraBoxes(add) {
+    const { collected, remaining } = autoPendingConfirm;
+    setAutoPendingConfirm(null);
+    finalizeAutoRoute(add ? [...collected, ...remaining] : collected);
+  }
+
+  function finalizeAutoRoute(boxList) {
+    if (boxList.length === 0) {
+      alert('לא נמצאו קופות עם מיקום באזורים שנבחרו');
+      return;
+    }
+    const optimized = nearestNeighborTSP(boxList);
+    setRoute(optimized);
+    setSelectedIds(optimized.map((b) => b.id));
+    setRouteCalculated(true);
+    setShowAutoBuilder(false);
+  }
+
+  function toggleAutoArea(area) {
+    setAutoSelectedAreas((prev) =>
+      prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]
+    );
+  }
+
   const totalDistance = calculateRouteDistance(route);
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 bg-white border-b">
-        <h2 className="text-lg font-bold text-gray-900 mb-1">תכנון מסלול</h2>
-        <p className="text-sm text-gray-500">
-          {route.length === 0
-            ? 'בחר קופות להוספה למסלול'
-            : `${route.length} נקודות במסלול${totalDistance > 0 ? ` • ${totalDistance.toFixed(1)} ק"מ` : ''}`}
-        </p>
+      <div className="px-3 py-2 bg-white border-b flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-bold text-gray-900 whitespace-nowrap">תכנון מסלול</h2>
+          <span className="text-xs text-gray-400 truncate">
+            {route.length === 0
+              ? 'בחר קופות'
+              : `${route.length} נקודות${totalDistance > 0 ? ` • ${totalDistance.toFixed(1)} ק"מ` : ''}`}
+          </span>
+        </div>
+        {uniqueAreas.length > 0 && (
+          <button
+            onClick={() => {
+              setAutoSelectedAreas([]);
+              setAutoTargetCount(10);
+              setShowAutoBuilder(true);
+            }}
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-xs font-medium transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            מסלול אוטומטי
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col gap-0">
         {/* Top panel: available boxes */}
         <div className="flex-1 min-h-0 border-b overflow-y-auto">
-          <div className="p-3 bg-gray-50 border-b sticky top-0 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">
-              קופות זמינות ({availableBoxes.length})
+          <div className="px-2 py-1.5 bg-gray-50 border-b sticky top-0 flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-600">
+              זמינות ({availableBoxes.length})
             </span>
-            <button
-              onClick={handleSelectAll}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-            >
-              הוסף הכל
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Filter dropdown */}
+              <div>
+                <button
+                  ref={filterBtnRef}
+                  onClick={() => setFilterOpen((v) => !v)}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium border transition-colors ${
+                    routeFilter !== 'all'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                  }`}
+                >
+                  🔽 {routeFilter === 'all' ? 'סנן' : getFilterLabel()}
+                </button>
+                {filterOpen && (() => {
+                  const rect = filterBtnRef.current?.getBoundingClientRect();
+                  return createPortal(
+                    <>
+                      <div
+                        className="fixed inset-0 z-[9998]"
+                        onClick={() => setFilterOpen(false)}
+                      />
+                      <div
+                        className="fixed bg-white border border-gray-200 rounded-lg shadow-lg z-[9999] min-w-[160px] overflow-hidden max-h-64 overflow-y-auto"
+                        style={rect ? { top: rect.bottom + 4, left: rect.left } : {}}
+                        dir="rtl"
+                      >
+                        {ROUTE_FILTER_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => { setRouteFilter(opt.value); setFilterOpen(false); }}
+                            className={`w-full text-right px-4 py-2 text-sm transition-colors ${
+                              routeFilter === opt.value
+                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                        {uniqueAreas.length > 0 && (
+                          <>
+                            <div className="border-t border-gray-100 px-4 py-1 text-xs text-gray-400 bg-gray-50">
+                              סינון לפי אזור
+                            </div>
+                            {uniqueAreas.map((area) => (
+                              <button
+                                key={area}
+                                onClick={() => { setRouteFilter(`area:${area}`); setFilterOpen(false); }}
+                                className={`w-full text-right px-4 py-2 text-sm transition-colors ${
+                                  routeFilter === `area:${area}`
+                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                    : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                📍 {area}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </>,
+                    document.body
+                  );
+                })()}
+              </div>
+              <button
+                onClick={handleSelectAll}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >
+                הוסף הכל
+              </button>
+            </div>
           </div>
           <div className="p-2 space-y-1">
             {availableBoxes.length === 0 ? (
               <p className="text-center text-gray-400 text-sm py-6">
                 {boxes.filter((b) => b.latitude && b.longitude).length === 0
                   ? 'אין קופות עם מיקום'
+                  : routeFilter !== 'all'
+                  ? 'אין קופות התואמות את הסינון'
                   : 'כל הקופות נוספו למסלול'}
               </p>
             ) : (
@@ -206,7 +418,9 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">{box.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{box.address || 'ללא כתובת'}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {box.area ? `${box.area} • ` : ''}{box.address || 'ללא כתובת'}
+                      </p>
                     </div>
                     <svg
                       className="w-4 h-4 text-blue-400 flex-shrink-0"
@@ -225,16 +439,16 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
 
         {/* Bottom panel: route */}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="p-3 bg-gray-50 border-b sticky top-0 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">
+          <div className="px-2 py-1.5 bg-gray-50 border-b sticky top-0 flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-600">
               מסלול ({route.length} נקודות)
             </span>
             {route.length > 0 && (
               <button
                 onClick={handleClear}
-                className="text-xs text-red-600 hover:text-red-800 font-medium"
+                className="text-xs text-red-500 hover:text-red-700 font-medium"
               >
-                נקה הכל
+                נקה
               </button>
             )}
           </div>
@@ -265,37 +479,186 @@ export default function RoutePlanner({ boxes, onStartNavigation }) {
 
       {/* Action bar */}
       {route.length > 0 && (
-        <div className="p-4 border-t bg-white space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+        <div className="px-3 py-2 border-t bg-white">
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={handleCalculateRoute}
-              className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              className="py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition-colors"
             >
               🔀 אופטימיזציה
             </button>
             <button
               onClick={() => onStartNavigation(route)}
               disabled={route.length === 0}
-              className="py-2.5 px-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="py-1.5 px-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
             >
               🧭 התחל ניווט
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={handleOpenGoogleMaps}
-              className="py-2.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
-            >
-              <span>🗺️</span> Google Maps
-            </button>
-            <button
-              onClick={handleOpenWaze}
-              className="py-2.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
-            >
-              <span>🚗</span> Waze
-            </button>
-          </div>
         </div>
+      )}
+
+      {/* Auto Builder Modal */}
+      {showAutoBuilder && createPortal(
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-[9998]"
+            onClick={() => setShowAutoBuilder(false)}
+          />
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4" dir="rtl">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto flex flex-col">
+              {/* Modal header */}
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-bold text-gray-900">בנה מסלול אוטומטי</h3>
+                <button
+                  onClick={() => setShowAutoBuilder(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Area selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    בחר אזורים
+                    {autoSelectedAreas.length > 0 && (
+                      <span className="mr-2 text-blue-600 font-normal">
+                        ({autoSelectedAreas.length} נבחרו)
+                      </span>
+                    )}
+                  </label>
+                  <div className="space-y-1 border border-gray-200 rounded-lg p-2 max-h-48 overflow-y-auto">
+                    {uniqueAreas.map((area) => {
+                      const areaBoxes = boxes.filter((b) => b.area === area && b.latitude && b.longitude);
+                      const unevacuated = areaBoxes.filter((b) => !b.is_evacuated).length;
+                      return (
+                        <label
+                          key={area}
+                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={autoSelectedAreas.includes(area)}
+                            onChange={() => toggleAutoArea(area)}
+                            className="w-4 h-4 text-blue-600 rounded"
+                          />
+                          <span className="flex-1 text-sm text-gray-800">{area}</span>
+                          <span className="text-xs text-gray-400">
+                            {unevacuated} לא פונו / {areaBoxes.length} סה"כ
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      onClick={() => setAutoSelectedAreas([...uniqueAreas])}
+                      className="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      בחר הכל
+                    </button>
+                    <span className="text-xs text-gray-300">|</span>
+                    <button
+                      onClick={() => setAutoSelectedAreas([])}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      נקה בחירה
+                    </button>
+                  </div>
+                </div>
+
+                {/* Target count */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    מספר קופות רצוי במסלול
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={autoTargetCount}
+                    onChange={(e) => setAutoTargetCount(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                </div>
+
+                {/* Algorithm explanation */}
+                <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+                  <p className="font-medium">כיצד האלגוריתם עובד:</p>
+                  <p>• ממיין אזורים לפי כמות הקופות שלא פונו (מהגדולה לקטנה)</p>
+                  <p>• בכל אזור — מוסיף קופות לפי ותק (הישנות ביותר קודם)</p>
+                  <p>• בסיום — מייעל את סדר המסלול אוטומטית</p>
+                </div>
+              </div>
+
+              <div className="p-4 border-t flex gap-2">
+                <button
+                  onClick={() => setShowAutoBuilder(false)}
+                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={handleBuildAutoRoute}
+                  disabled={autoSelectedAreas.length === 0}
+                  className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  בנה מסלול
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* Mid-area confirmation dialog */}
+      {autoPendingConfirm && createPortal(
+        <>
+          <div className="fixed inset-0 bg-black/50 z-[9998]" />
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4" dir="rtl">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
+              <div className="text-3xl mb-3">📍</div>
+              <h3 className="text-base font-bold text-gray-900 mb-2">
+                הגעת ל-{autoPendingConfirm.collected.length} קופות
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                יש עוד{' '}
+                <span className="font-bold text-purple-700">
+                  {autoPendingConfirm.remaining.length}
+                </span>{' '}
+                קופות באזור{' '}
+                <span className="font-bold">"{autoPendingConfirm.areaName}"</span>,
+                להוסיף למסלול?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAutoPendingConfirm(null)}
+                  className="flex-1 py-2 bg-white hover:bg-gray-50 text-gray-500 rounded-lg text-sm font-medium transition-colors border border-gray-200"
+                >
+                  ביטול תהליך
+                </button>
+                <button
+                  onClick={() => handleConfirmExtraBoxes(false)}
+                  className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  לא, מספיק
+                </button>
+                <button
+                  onClick={() => handleConfirmExtraBoxes(true)}
+                  className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  כן, הוסף הכל
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );
