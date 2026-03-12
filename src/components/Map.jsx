@@ -81,6 +81,7 @@ export default function Map({ boxes, onSelectBox, selectedBox, filter, focusLoca
       if (filter === 'evacuated') return box.is_evacuated;
       if (filter === 'not_evacuated') return !box.is_evacuated;
       if (filter === 'no_location') return false;
+      if (filter?.startsWith('area:')) return box.area === filter.slice(5);
       return true;
     })
     .map((box) => ({

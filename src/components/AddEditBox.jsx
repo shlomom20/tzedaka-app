@@ -7,6 +7,7 @@ const emptyForm = {
   serial_number: '',
   name: '',
   address: '',
+  area: '',
   latitude: '',
   longitude: '',
   responsible_phone: '',
@@ -41,24 +42,37 @@ export default function AddEditBox({ box, boxes = [], onClose, onSave }) {
   const [geocoding, setGeocoding] = useState(false);
   const [error, setError] = useState('');
   const [locationTab, setLocationTab] = useState('address');
+  const [areaMode, setAreaMode] = useState('select'); // 'select' | 'custom'
 
   const isEdit = !!box;
   const hasCoords =
     form.latitude !== '' && form.longitude !== '' &&
     !isNaN(parseFloat(form.latitude)) && !isNaN(parseFloat(form.longitude));
 
+  const existingAreas = [...new Set(
+    boxes.map((b) => b.area).filter((a) => a && a.trim())
+  )].sort();
+
   useEffect(() => {
     if (box) {
+      const area = box.area || '';
       setForm({
         serial_number: box.serial_number || '',
         name: box.name || '',
         address: box.address || '',
+        area,
         latitude: box.latitude != null ? String(box.latitude) : '',
         longitude: box.longitude != null ? String(box.longitude) : '',
         responsible_phone: box.responsible_phone || '',
         notes: box.notes || '',
         is_evacuated: box.is_evacuated || false,
       });
+      // If the box's area isn't in the list, open custom mode
+      if (area && !existingAreas.includes(area)) {
+        setAreaMode('custom');
+      } else {
+        setAreaMode('select');
+      }
     }
   }, [box]);
 
@@ -129,6 +143,7 @@ export default function AddEditBox({ box, boxes = [], onClose, onSave }) {
         serial_number: form.serial_number.trim(),
         name: form.name.trim(),
         address: form.address.trim(),
+        area: form.area.trim() || null,
         latitude: form.latitude !== '' ? parseFloat(form.latitude) : null,
         longitude: form.longitude !== '' ? parseFloat(form.longitude) : null,
         responsible_phone: form.responsible_phone.trim() || null,
@@ -203,6 +218,51 @@ export default function AddEditBox({ box, boxes = [], onClose, onSave }) {
                 required
               />
             </div>
+          </div>
+
+          {/* Area */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">אזור</label>
+            {areaMode === 'select' ? (
+              <select
+                value={form.area}
+                onChange={(e) => {
+                  if (e.target.value === '__new__') {
+                    setAreaMode('custom');
+                    setForm((prev) => ({ ...prev, area: '' }));
+                  } else {
+                    setForm((prev) => ({ ...prev, area: e.target.value }));
+                  }
+                }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">— ללא אזור —</option>
+                {existingAreas.map((area) => (
+                  <option key={area} value={area}>{area}</option>
+                ))}
+                <option value="__new__">✏️ הכנס אזור חדש...</option>
+              </select>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  name="area"
+                  value={form.area}
+                  onChange={handleChange}
+                  placeholder="הכנס שם אזור חדש"
+                  autoFocus
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {existingAreas.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setAreaMode('select'); setForm((prev) => ({ ...prev, area: '' })); }}
+                    className="px-3 py-2 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    ← רשימה
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Location section */}

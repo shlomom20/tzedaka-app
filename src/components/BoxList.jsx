@@ -8,10 +8,12 @@ export default function BoxList({
     if (filter === 'evacuated') return box.is_evacuated;
     if (filter === 'not_evacuated') return !box.is_evacuated;
     if (filter === 'no_location') return !hasLocation;
+    if (filter?.startsWith('area:')) return box.area === filter.slice(5);
     return true;
   }).filter((box) => {
     if (!searchQuery.trim()) return true;
-    return box.name?.toLowerCase().includes(searchQuery.trim().toLowerCase());
+    const q = searchQuery.trim().toLowerCase();
+    return box.name?.toLowerCase().includes(q) || box.address?.toLowerCase().includes(q);
   });
 
   if (filteredBoxes.length === 0) {

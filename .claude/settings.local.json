@@ -19,7 +19,9 @@
       "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | grep -i \"error\\\\|Error\" | head -20)",
       "Bash(cd C:/Users/shlom/tzedaka-app && npm run build 2>&1 | tail -5)",
       "Bash(npm install:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(find /c/Users/shlom/tzedaka-app -type f \\\\\\( -name \"*.sql\" -o -name \"*migration*\" -o -name \"*schema*\" \\\\\\) 2>/dev/null | grep -v node_modules)"
     ]
   }
 }

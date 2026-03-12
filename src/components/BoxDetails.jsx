@@ -88,6 +88,7 @@ export default function BoxDetails({ box, onClose, onEdit, onUpdate, onDelete, o
           </span>
 
           <DetailRow label="מספר סידורי" value={box.serial_number} />
+          <DetailRow label="אזור" value={box.area || 'לא הוכנס אזור'} />
           <DetailRow label="כתובת" value={box.address} />
           <DetailRow
             label="מיקום"

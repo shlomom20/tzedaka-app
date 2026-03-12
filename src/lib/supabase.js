@@ -15,7 +15,7 @@ export const supabase = createClient(
 // Fetch all boxes, auto-reset is_evacuated if last_evacuated_at > 2 months ago
 export async function fetchBoxes() {
   const { data, error } = await supabase
-    .from('boxes')
+    .from('kupot')
     .select('*')
     .order('created_at', { ascending: false });
 
@@ -34,7 +34,7 @@ export async function fetchBoxes() {
   if (toReset.length > 0) {
     const ids = toReset.map((b) => b.id);
     await supabase
-      .from('boxes')
+      .from('kupot')
       .update({ is_evacuated: false, updated_at: new Date().toISOString() })
       .in('id', ids);
 
@@ -51,7 +51,7 @@ export async function fetchBoxes() {
 
 export async function createBox(boxData) {
   const { data, error } = await supabase
-    .from('boxes')
+    .from('kupot')
     .insert([{ ...boxData, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
     .select()
     .single();
@@ -62,7 +62,7 @@ export async function createBox(boxData) {
 
 export async function updateBox(id, updates) {
   const { data, error } = await supabase
-    .from('boxes')
+    .from('kupot')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
@@ -73,12 +73,12 @@ export async function updateBox(id, updates) {
 }
 
 export async function deleteBox(id) {
-  const { error } = await supabase.from('boxes').delete().eq('id', id);
+  const { error } = await supabase.from('kupot').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteBoxes(ids) {
-  const { error } = await supabase.from('boxes').delete().in('id', ids);
+  const { error } = await supabase.from('kupot').delete().in('id', ids);
   if (error) throw error;
 }
 

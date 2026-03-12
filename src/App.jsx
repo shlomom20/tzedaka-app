@@ -14,7 +14,7 @@ const TABS = [
   { id: 'route', label: '🧭 מסלול' },
 ];
 
-const FILTER_OPTIONS = [
+const STATIC_FILTER_OPTIONS = [
   { value: 'all', label: 'הכל' },
   { value: 'not_evacuated', label: 'לא פונו' },
   { value: 'evacuated', label: 'פונו' },
@@ -170,6 +170,18 @@ export default function App() {
   const evacuatedCount = boxes.filter((b) => b.is_evacuated).length;
   const notEvacuatedCount = boxes.filter((b) => !b.is_evacuated).length;
 
+  const uniqueAreas = [...new Set(
+    boxes.map((b) => b.area).filter((a) => a && a.trim())
+  )].sort();
+
+  function getFilterLabel() {
+    if (filter.startsWith('area:')) {
+      const area = filter.slice(5);
+      return `אזור: ${area}`;
+    }
+    return STATIC_FILTER_OPTIONS.find((o) => o.value === filter)?.label ?? 'הכל';
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col" dir="rtl">
       {/* Header */}
@@ -246,7 +258,7 @@ export default function App() {
                       : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
                   }`}
                 >
-                  🔽 סנן לפי{filter !== 'all' && `: ${FILTER_OPTIONS.find(o => o.value === filter)?.label}`}
+                  🔽 סנן לפי{filter !== 'all' && `: ${getFilterLabel()}`}
                 </button>
                 {filterOpen && (
                   <>
@@ -254,8 +266,8 @@ export default function App() {
                       className="fixed inset-0 z-[1101]"
                       onClick={() => setFilterOpen(false)}
                     />
-                    <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-[1102] min-w-[120px] overflow-hidden">
-                      {FILTER_OPTIONS.map((opt) => (
+                    <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-[1102] min-w-[140px] overflow-hidden max-h-72 overflow-y-auto">
+                      {STATIC_FILTER_OPTIONS.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => { setFilter(opt.value); setFilterOpen(false); }}
@@ -268,6 +280,26 @@ export default function App() {
                           {opt.label}
                         </button>
                       ))}
+                      {uniqueAreas.length > 0 && (
+                        <>
+                          <div className="border-t border-gray-100 px-4 py-1 text-xs text-gray-400 bg-gray-50">
+                            סינון לפי אזור
+                          </div>
+                          {uniqueAreas.map((area) => (
+                            <button
+                              key={area}
+                              onClick={() => { setFilter(`area:${area}`); setFilterOpen(false); }}
+                              className={`w-full text-right px-4 py-2 text-sm transition-colors ${
+                                filter === `area:${area}`
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              📍 {area}
+                            </button>
+                          ))}
+                        </>
+                      )}
                     </div>
                   </>
                 )}
@@ -365,7 +397,7 @@ export default function App() {
                     {!selectMode && (
                       <input
                         type="text"
-                        placeholder="חיפוש לפי שם קופה..."
+                        placeholder="חפש לפי שם/כתובת קופה..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -439,7 +471,7 @@ export default function App() {
             style={{ zIndex: 1100 }}
             onClick={handleCloseDetails}
           />
-          <div className="fixed top-0 right-0 h-full w-96 shadow-2xl" style={{ zIndex: 1101 }}>
+          <div className="fixed top-0 left-0 h-full w-96 shadow-2xl" style={{ zIndex: 1101 }}>
             <BoxDetails
               box={selectedBox}
               onClose={handleCloseDetails}
